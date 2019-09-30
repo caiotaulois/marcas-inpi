@@ -24,6 +24,7 @@ object Marcas {
     registrosPorPaisEstrangeiro(marcas)
     procuradores(marcas)
     estadosSemProcurador(marcas)
+    duracaoProcessosEstadosNoBrasil(marcas)
   }
 
   def iniciarSparkSession(node: String, port: String): SparkSession = {
@@ -54,7 +55,7 @@ object Marcas {
   def registrosPorPaisEstrangeiro(marcas: DataFrame): Unit = {
     marcas
       .filter(col("titulares.titular._pais").isNotNull)
-      .filter(col("titulares.titular._pais")=!="BR")
+      .filter(col("titulares.titular._pais") =!= "BR")
       .groupBy("titulares.titular._pais")
       .count()
       .withColumnRenamed("_pais", "pais")
@@ -83,5 +84,21 @@ object Marcas {
       .withColumnRenamed("count", "registros")
       .select("uf", "registros")
       .saveToEs("ufs/uf", Map("es.mapping.id" -> "uf"))
+  }
+
+  def duracaoProcessosEstadosNoBrasil(marcas: DataFrame): Unit = {
+    marcas
+      .filter(col("_data-deposito").isNotNull)
+      .filter(col("_data-concessao").isNotNull)
+      .filter(col("titulares.titular._pais")==="BR")
+      .withColumn("dataDeposito", to_date(unix_timestamp(col("_data-deposito"), "dd/MM/yyyy").cast("timestamp")))
+      .withColumn("dataConcessao", to_date(unix_timestamp(col("_data-concessao"), "dd/MM/yyyy").cast("timestamp")))
+      .withColumn("duracaoProcesso", datediff(col("dataConcessao"), col("dataDeposito")))
+      .groupBy("titulares.titular._uf")
+      .avg("duracaoProcesso")
+      .withColumnRenamed("_uf", "uf")
+      .withColumn("duracaoProcesso", round(col("avg(duracaoProcesso)")))
+      .select("uf", "duracaoProcesso")
+      .saveToEs("processos/duracao", Map("es.mapping.id" -> "uf"))
   }
 }
